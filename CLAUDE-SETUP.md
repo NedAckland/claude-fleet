@@ -148,6 +148,15 @@ echo "bash -n check done"
 
 If `VERIFY OK` printed and no syntax errors appeared, the install is correct.
 
+Finally, run the kit's bundled self-test from the kit dir and confirm it prints `VERIFY OK`:
+
+```bash
+bash "$KIT/verify.sh"   # syntax-checks every script + proves claim-guard deny(2)/allow(0)
+```
+
+It exits non-zero on any failure and prints `VERIFY OK` on success — confirm you see `VERIFY OK`
+before reporting the install complete.
+
 ## Step 5 — report to the user
 
 State plainly: (a) files installed and where, (b) that the `settings.json` hooks were registered,

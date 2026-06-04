@@ -48,6 +48,19 @@ You can also exercise the mechanism directly:
 .claude/fleet/scripts/board.sh main
 ```
 
+## Verify your install
+
+After installing, run the kit's self-test from the kit dir to confirm everything works:
+
+```bash
+bash verify.sh
+```
+
+It syntax-checks every script under `hooks/` and `scripts/`, then functionally proves the
+`claim-guard` hook by feeding it an out-of-claim edit (must DENY, exit 2) and an in-claim edit (must
+ALLOW, exit 0). It prints `VERIFY OK` and exits 0 on success, and exits non-zero on any failure. Pure
+`bash` + `node` — nothing to install.
+
 ## Install
 
 Two guides, pick the one that fits:
@@ -65,6 +78,7 @@ claude-fleet/
 ├── HUMAN-SETUP.md                   ← install + operate, for a person
 ├── CLAUDE-SETUP.md                  ← self-install steps, for an AI agent
 ├── LICENSE                          ← MIT
+├── verify.sh                        ← one-command self-test (claim-guard deny/allow + syntax)
 ├── .gitignore
 ├── skills/
 │   └── agent-orchestrator/          ← the orchestrator SKILL (the conductor's playbook)
