@@ -16,6 +16,12 @@
 
 input=$(cat 2>/dev/null)
 
+# Resolve the repo root from CLAUDE_PROJECT_DIR (the hook's cwd is not guaranteed to be the repo
+# root). Anchoring every path here keeps the config probe, the worktree scan, and the log write
+# consistent no matter where Claude Code launched the orchestrator session.
+root="${CLAUDE_PROJECT_DIR:-.}"
+cd "$root" 2>/dev/null || exit 0
+
 # Only act inside an orchestrator-enabled repo.
 [ -f ".fleet/config.json" ] || exit 0
 command -v git >/dev/null 2>&1 || exit 0

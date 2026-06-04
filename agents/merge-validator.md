@@ -45,14 +45,19 @@ Ground every claim in a command's actual output — never assert what you didn't
    branch alone don't prove the *merge* (validate the settled tree). Create a disposable trial-merge
    worktree, run the command there, then remove it:
    ```bash
-   trial="$(mktemp -d)/trial"
+   trialParent="$(mktemp -d)"; trial="$trialParent/trial"
    git -C "<repoRoot>" worktree add --detach "$trial" "<base>" >/dev/null
    for a in <linkArtifacts>; do ln -s "<repoRoot>/$a" "$trial/$a" 2>/dev/null || true; done
-   git -C "$trial" merge --no-commit --no-ff "<feat>" >/dev/null 2>&1 || echo "MERGE_FAILED"
-   ( cd "$trial" && <validate command> ); echo "EXIT:$?"
+   if git -C "$trial" merge --no-commit --no-ff "<feat>" >/dev/null 2>&1; then
+     ( cd "$trial" && <validate command> ); echo "EXIT:$?"
+   else
+     echo "MERGE_FAILED"
+   fi
    git -C "<repoRoot>" worktree remove --force "$trial"; git -C "<repoRoot>" worktree prune
+   rmdir "$trialParent" 2>/dev/null || true
    ```
-   `EXIT:0` ⇒ tests pass on the merged result. `MERGE_FAILED` ⇒ mergeability is false.
+   `EXIT:0` ⇒ tests pass on the merged result. `MERGE_FAILED` ⇒ the branches conflict, so
+   mergeability is false — record it and skip the test run (don't test a conflicted tree).
 
 4. **Keep it tidy.** Always remove the trial worktree, even on failure. Never alter `base`, `feat`,
    or any other agent's tree.
