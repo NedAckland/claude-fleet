@@ -22,6 +22,7 @@ fi
 [ -n "$base" ] || base="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || echo HEAD)"
 
 git show-ref --verify --quiet "refs/heads/$br" || { echo "no such branch: $br" >&2; exit 2; }
+[ "$base" = "$br" ] && { echo "base == branch ($br); pass an explicit base-ref" >&2; exit 2; }
 
 echo "# Review — $br  →  $base"
 echo
@@ -33,12 +34,13 @@ git log --oneline "$base..$br" | sed 's/^/  /'
 echo
 echo "## Diff (comment by FILE # and @@ hunk header)"
 n=0
-git diff --name-only "$base...$br" | while IFS= read -r f; do
+while IFS= read -r f; do
   n=$(( n + 1 ))
   echo
   echo "===== FILE $n: $f ====="
-  git diff "$base...$br" -- "$f"
-done
+  git -c core.quotePath=false diff "$base...$br" -- "$f"
+done < <(git -c core.quotePath=false diff --name-only "$base...$br")
+[ "$n" -eq 0 ] && echo "  (no changes between $base and $br)"
 echo
 echo "# To request changes: list comments as 'FILE n / @@hunk: <what to change>' and re-dispatch the"
 echo "# worker on $br with them (Revision loop). To accept: send $br through the merge-validator + gate."
