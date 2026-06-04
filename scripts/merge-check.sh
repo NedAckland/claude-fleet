@@ -31,29 +31,33 @@ case "$rc" in
   *) conflicts=null ;;
 esac
 
-in_scope() { # <file> <claim...>
-  local f="$1"; shift
-  local c cc
-  for c in "$@"; do
-    cc="${c%/}"
-    [ "$f" = "$c" ] && return 0
-    [ "$f" = "$cc" ] && return 0
-    case "$f" in "$cc"/*) return 0 ;; esac
-  done
-  return 1
-}
-
+# Out-of-claim detection. Uses the SAME glob semantics as hooks/claim-guard.sh — plain entries match
+# as exact-file OR directory prefixes, and glob chars (* ** ? [..]) are honored — so the validator's
+# scope check and the edit-time guard can never disagree (e.g. a "src/**" claim that the guard ALLOWS
+# must not be flagged out-of-scope here). KEEP THIS matches() IN SYNC WITH claim-guard.sh's matches().
+# A malformed glob fails CLOSED (counted as out-of-scope) so the validator errs toward a hold.
 out=""
 if [ "$#" -gt 0 ] && [ -n "$changed" ]; then
-  while IFS= read -r f; do
-    [ -z "$f" ] && continue
-    if ! in_scope "$f" "$@"; then
-      out="${out}${f}
-"
-    fi
-  done <<EOF
-$changed
-EOF
+  # Program comes from the heredoc (node -); data comes via env (NOT a pipe — a pipe would collide
+  # with the heredoc on stdin and the file list would never reach the script).
+  export _MC_CLAIM="$(printf '%s\n' "$@")" _MC_CHANGED="$changed"
+  out="$(node - <<'NODE'
+const globs = (process.env._MC_CLAIM || "").split("\n").map(x => x.trim()).filter(Boolean);
+const files = (process.env._MC_CHANGED || "").split("\n").map(x => x.trim()).filter(Boolean);
+function matches(g, p) {
+  g = g.trim();
+  if (!g) return false;
+  const hasGlob = /[*?[\]]/.test(g);
+  if (!hasGlob) {
+    const d = g.replace(/\/+$/, "");
+    return p === d || p.startsWith(d + "/");
+  }
+  let re = g.replace(/[.+^${}()|\\]/g, "\\$&").replace(/\*\*/g, " ").replace(/\*/g, "[^/]*").replace(/ /g, ".*").replace(/\?/g, "[^/]");
+  try { return new RegExp("^" + re + "$").test(p); } catch { return false; }
+}
+process.stdout.write(files.filter(f => !globs.some(g => matches(g, f))).join("\n"));
+NODE
+)"
 fi
 
 json_arr_from_lines() {
