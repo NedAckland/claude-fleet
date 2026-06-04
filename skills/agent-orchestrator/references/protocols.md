@@ -277,7 +277,9 @@ always-off paths; claim-guard scopes each worker to its lane. If a repo doesn't 
 The orchestrator also maintains **`.fleet/memory.json`** (separate from this config): an append-only
 log of per-run learnings (too-narrow claims, validator verdicts, decompositions that worked). It is
 *read* at decompose time (lifecycle step 1) and *written* at wrap-up (step 9) so each run improves on
-the last. Safe to commit per-repo.
+the last. It is **gitignored by default** (machine-local learning state). If you want that learning to
+persist across clones or be shared with the team, remove the `.fleet/memory.json` line from
+`.gitignore` and commit it per-repo.
 
 If the file is absent, infer `validate` from the repo (package.json scripts, Makefile, cargo,
 pytest, go test) and ask once if ambiguous, offering to write this file.

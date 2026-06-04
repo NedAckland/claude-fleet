@@ -286,8 +286,11 @@ All under `.claude/fleet/scripts/` (pure git + a tiny `awk`/`node` for JSON; mac
   comment→revise loop (step 7).
 - `on-subagent-stop.sh` — `SubagentStop` hook (wire in `settings.json` if you want it). Non-blocking;
   self-gates on the fleet config and only speaks up when an `agent/*` worktree is still dirty after a
-  subagent stops — a breadcrumb that a worker may have skipped committing. The binding guarantees are
-  the worker brief + lifecycle, not this hook.
+  subagent stops — a breadcrumb that a worker may have skipped committing. **Requires
+  `.fleet/config.json` to exist** (its self-gate): on a run without that file the breadcrumb stays
+  silent, so write the config if you want it. No loss either way — the binding guarantees are the
+  worker brief + lifecycle (and the orchestrator already catches dirty `agent/*` work via `board.sh`
+  and step-6 validation), not this hook.
 
 ## Thin workers — minimal context, orchestrator owns bookkeeping
 
