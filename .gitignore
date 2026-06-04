@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# Logs
+*.log
+
+# Per-agent worktree scratch (written by the hooks; never committed)
+.agent-claim
+.agent-heartbeat
+.agent-trail
+
+# Sibling worktree trees and fleet runtime state
+.claude/worktrees/
+*-worktrees/
+.fleet/wrapup.log
+.fleet/memory.json
