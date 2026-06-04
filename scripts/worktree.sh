@@ -38,7 +38,7 @@ write_claim() { # <worktree> <prefix...>
   excl="$(git -C "$wt" rev-parse --git-path info/exclude 2>/dev/null)"
   if [ -n "$excl" ]; then
     local f
-    for f in .agent-claim .agent-heartbeat .agent-trail; do
+    for f in .agent-claim .agent-heartbeat .agent-trail .agent-trail.tmp; do
       grep -qxF "$f" "$excl" 2>/dev/null || echo "$f" >> "$excl"
     done
   fi
