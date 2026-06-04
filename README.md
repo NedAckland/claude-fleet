@@ -42,7 +42,8 @@ You can also exercise the mechanism directly:
 
 ```bash
 # provision an isolated worktree + branch, claimed to one directory
-.claude/fleet/scripts/worktree.sh create 1 parser src/parser/
+# (args: create <id> <slug> <base-ref> <claim-prefix...> — base-ref first, then the claim)
+.claude/fleet/scripts/worktree.sh create 1 parser HEAD src/parser/
 
 # see every agent worktree's status (ahead/behind, heartbeat, STALL?)
 .claude/fleet/scripts/board.sh main
@@ -63,20 +64,17 @@ ALLOW, exit 0). It prints `VERIFY OK` and exits 0 on success, and exits non-zero
 
 ## Install
 
-Two guides, pick the one that fits:
-
-- **[HUMAN-SETUP.md](HUMAN-SETUP.md)** — you're a person reading docs. Step-by-step: copy the files
-  in, add the hook to `settings.json` (exact JSON), drive a multi-agent run, work the merge gate.
-- **[CLAUDE-SETUP.md](CLAUDE-SETUP.md)** — you're an AI agent installing this into a target repo.
-  Terse, imperative, exact copies + the `settings.json` edit + a self-verification command to run.
+See **[CLAUDE-SETUP.md](CLAUDE-SETUP.md)** — terse, imperative, copy-paste-ready steps to install
+this into a target repo: exact file copies, the `settings.json` hook edit, and a self-verification
+command to run. Written for an AI agent to execute, but equally followable by a person reading
+straight down it.
 
 ## Repo map
 
 ```
 claude-fleet/
 ├── README.md                        ← this file
-├── HUMAN-SETUP.md                   ← install + operate, for a person
-├── CLAUDE-SETUP.md                  ← self-install steps, for an AI agent
+├── CLAUDE-SETUP.md                  ← install + verify steps (agent- or human-followable)
 ├── LICENSE                          ← MIT
 ├── verify.sh                        ← one-command self-test (claim-guard deny/allow + syntax)
 ├── .gitignore

@@ -35,11 +35,28 @@ find_agent_claim_dir() { # <start-dir>
   return 1
 }
 
+# Walk up from a starting dir to the worktree/checkout root — the nearest dir holding a .git entry
+# (a linked worktree carries a .git FILE, the main checkout a .git DIR). Print it if found.
+find_worktree_root() { # <start-dir>
+  local d="$1"
+  while [[ -n "$d" && "$d" != "/" ]]; do
+    if [[ -e "$d/.git" ]]; then printf '%s' "$d"; return 0; fi
+    d="$(dirname "$d")"
+  done
+  return 1
+}
+
 # claim_base = the directory the claim's path prefixes are relative to (a worktree or the project
 # root). The edited file is made relative to THIS dir before matching, so a claim like "src/" works
-# whether the worker's worktree is the project root or a sibling worktree dir.
+# whether the worker's worktree is the project root or a sibling worktree dir. Claim prefixes are
+# ALWAYS relative to the edited file's own worktree root, regardless of which source the claim string
+# comes from — so resolve that first (CLAUDE_PROJECT_DIR may point at the main checkout while the edit
+# targets a sibling worktree). The .agent-claim branch below refines it to the exact claim dir.
 claim=""
 claim_base="$root"
+if [[ -n "$file" && "$file" == /* ]] && wr="$(find_worktree_root "$(dirname "$file")")"; then
+  claim_base="$wr"
+fi
 if [[ -n "${AGENT_CLAIM:-}" ]]; then
   claim="$AGENT_CLAIM"
 elif [[ -n "$file" ]] && cb="$(find_agent_claim_dir "$(dirname "$file")")"; then
@@ -62,7 +79,11 @@ const args = process.argv.slice(2).filter(a => a !== '-');
 const [file, root] = args;
 const claim = process.env._CG_CLAIM || '';
 const globs = claim.split(/[\n:]+/).map(s => s.trim()).filter(Boolean);
-const rel = file.startsWith(root) ? file.slice(root.length).replace(/^\/+/, '') : file;
+// Boundary-aware prefix strip: only treat `root` as a parent when it matches at a path
+// boundary, so a sibling worktree dir (e.g. "<repo>-worktrees/…") isn't mistaken for being
+// under "<repo>/" just because the string prefix matches.
+const base = root.replace(/\/+$/, '');
+const rel = (file === base || file.startsWith(base + '/')) ? file.slice(base.length).replace(/^\/+/, '') : file;
 // A claim is a PATH PREFIX (per the skill docs):
 //   - "src/" or "src" (a directory) matches everything under it: src/foo.ts, src/a/b.ts
 //   - "src/ranges.ts" (a file) matches exactly that file
