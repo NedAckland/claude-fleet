@@ -74,10 +74,12 @@ After installing, run the kit's self-test from the kit dir to confirm everything
 bash verify.sh
 ```
 
-It syntax-checks every script under `hooks/` and `scripts/`, then functionally proves the
-`claim-guard` hook by feeding it an out-of-claim edit (must DENY, exit 2) and an in-claim edit (must
-ALLOW, exit 0). It prints `VERIFY OK` and exits 0 on success, and exits non-zero on any failure. Pure
-`bash` + `node` — nothing to install.
+It runs four checks: (1) `bash -n` syntax over every script under `hooks/` and `scripts/`;
+(2) `claim-guard` deny/allow for both an **Edit** and a **Bash** write (out-of-claim must DENY exit 2,
+in-claim must ALLOW exit 0); (3) every shipped agent has a unique `name` + `description` and the
+generic `orchestrator-worker` fallback exists; (4) the `heartbeat` hook stamps a claimed worktree for
+a Bash action and leaves a claimless dir untouched. It prints `VERIFY OK` and exits 0 on success,
+non-zero on any failure. Pure `bash` + `node` — nothing to install.
 
 ## Repo map
 
@@ -120,14 +122,17 @@ claude-fleet/
 The orchestrator decomposes the user's goal into tasks, gives each a **non-overlapping path-claim**,
 and provisions **one git worktree + `agent/*` branch per task** so agents are physically isolated and
 can never clobber each other's files or yank each other's branch. It dispatches workers (background or
-manual), each fenced to its lane by the `claim-guard` hook; `board.sh` / `trail.sh` show who's
-progressing vs. stalled. When a task reports done, the **merge-validator** subagent trial-merges the
+manual) — choosing the best-fit **specialized worker agent** per task (`bugfix-worker`,
+`refactor-worker`, or one you grow), and the model by task weight, with a generic `orchestrator-worker`
+fallback when none clearly fits — each fenced to its lane by the `claim-guard` hook; `board.sh` /
+`trail.sh` show who's progressing vs. stalled. When a task reports done, the **merge-validator** subagent trial-merges the
 branch in a throwaway worktree and runs the project's tests **on the merged result** — catching
 *logical* conflicts that merge clean but break at runtime — and returns a structured verdict. The
 orchestrator presents a merge brief and then **stops at the human gate**: it never merges on its own.
 On explicit approval it runs a **merge train** — land one branch with `--no-ff`, rebase + re-validate
 every other in-flight branch (a prior approval is stale once the base moves), tear down the worktree,
-and free the claim (which may unblock dependent tasks).
+and free the claim (which may unblock dependent tasks). Need a specialist the kit doesn't ship? The
+**`grow-worker`** skill interviews you and generates a custom worker agent (with an anti-rot gate).
 
 ## The path-claim, in one line
 
