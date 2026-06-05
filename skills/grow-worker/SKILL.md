@@ -48,7 +48,13 @@ this task instead of minting an agent.
    (`Read, Edit, Write, MultiEdit, Bash, Grep, Glob, ToolSearch`, `permissionMode: acceptEdits`).
    Offer a **narrower** set when the role wants it — e.g. drop `Edit/Write` for a read-only
    investigator. A tighter toolset is itself a valid specialization (criterion 2).
-5. **Discipline steps.** Elicit 3–5 method steps that distinguish this worker from the generic one
+5. **Model / effort (optional, default: none).** Ask whether this role *always* needs a specific
+   model tier or reasoning `effort`. **Recommend leaving it off** (`model: inherit`): the orchestrator
+   already picks the model per-dispatch by task weight (SKILL.md step 4), and a hardcoded `model:`
+   overrides that per-task judgment for *every* dispatch of this worker. Only set it when the role is
+   inherently heavy or inherently trivial regardless of the specific task (e.g. a deep-reasoning
+   worker that should never run on a small model). If unsure → leave it inherit.
+6. **Discipline steps.** Elicit 3–5 method steps that distinguish this worker from the generic one
    (what it does first, the core method, how it verifies, what it explicitly does NOT do → `findings`).
    Keep them self-contained — don't assume context the orchestrator won't pass.
 
