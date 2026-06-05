@@ -27,10 +27,25 @@ Concurrent agents collide for two avoidable reasons:
 
 claude-fleet provides both, plus the safe-merge machinery on the back end.
 
+## Install
+
+**In your target repo's Claude Code session, paste this:**
+
+> Clone https://github.com/NedAckland/claude-fleet and install it into this repo by following its
+> `CLAUDE-SETUP.md`. Then tell me to restart Claude Code so the hooks and worker agents register.
+
+That's the whole install: the agent clones the kit, copies the skill + agents + scripts, merges the
+hooks into `.claude/settings.json`, and runs the self-test. **Then restart Claude Code** — the hooks
+and agents only take effect on startup, so until you restart the kit is installed but *inert*.
+
+Prefer to do it by hand (or just read exactly what it does first)? **[CLAUDE-SETUP.md](CLAUDE-SETUP.md)**
+is terse, imperative, and copy-paste-ready — clone step, file copies, the `settings.json` edit, and the
+verification command. Written for an AI agent to execute, equally followable by a person top to bottom.
+
 ## 30-second quickstart
 
 You drive this from an **orchestrator** Claude Code session (the one with the Task/Agent tool). After
-installing (see the setup guides below), tell that session:
+installing (above) and restarting, tell that session:
 
 > "Use the agent-orchestrator skill. Split this work into parallel tasks, give each its own claim and
 > worktree, and don't merge anything until I approve."
@@ -63,13 +78,6 @@ It syntax-checks every script under `hooks/` and `scripts/`, then functionally p
 `claim-guard` hook by feeding it an out-of-claim edit (must DENY, exit 2) and an in-claim edit (must
 ALLOW, exit 0). It prints `VERIFY OK` and exits 0 on success, and exits non-zero on any failure. Pure
 `bash` + `node` — nothing to install.
-
-## Install
-
-See **[CLAUDE-SETUP.md](CLAUDE-SETUP.md)** — terse, imperative, copy-paste-ready steps to install
-this into a target repo: exact file copies, the `settings.json` hook edit, and a self-verification
-command to run. Written for an AI agent to execute, but equally followable by a person reading
-straight down it.
 
 ## Repo map
 

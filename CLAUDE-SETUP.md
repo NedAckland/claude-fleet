@@ -12,11 +12,13 @@ works rather than assuming it.
   - `KIT` — where this claude-fleet kit lives.
   - The **target repo root** — run every command below from there.
 
-Set them and confirm:
+Get the kit and set the paths, then confirm:
 
 ```bash
-KIT="<path-to-claude-fleet-kit>"     # EDIT THIS
-cd "<path-to-target-repo>"           # EDIT THIS
+# Clone the kit (skip if you already have a local copy — just point KIT at it):
+git clone https://github.com/NedAckland/claude-fleet /tmp/claude-fleet 2>/dev/null || true
+KIT="/tmp/claude-fleet"              # the kit clone, or your existing local path
+cd "<path-to-target-repo>"           # EDIT THIS — your own project
 ROOT="$(git rev-parse --show-toplevel)" && cd "$ROOT"
 command -v git node bash >/dev/null && echo "preconditions OK"
 ```
@@ -171,10 +173,16 @@ before reporting the install complete.
 
 State plainly: (a) files installed and where — including the worker agents now in `.claude/agents/`
 (`merge-validator`, `orchestrator-worker`, `bugfix-worker`, `refactor-worker`), (b) that the
-`settings.json` hooks were registered, (c) the VERIFY result (deny=2, allow=0). Then tell them: adding
-or editing ANY agent under `.claude/agents/` (the validator or any worker agent) requires a **Claude
-Code restart** to register — so a worker agent grown mid-session only becomes dispatchable next run;
-and that to run a fleet they invoke the `agent-orchestrator` skill from a session that has the
+`settings.json` hooks were registered, (c) the VERIFY result (deny=2, allow=0).
+
+Then the **mandatory restart gate** — say it as a hard step, not a footnote: **the user must restart
+Claude Code before running a fleet.** Both the `settings.json` hooks (claim-guard, heartbeat,
+on-subagent-stop) and every agent under `.claude/agents/` register only at startup — until the restart,
+the kit is installed but **inert** (no claim enforcement, and `subagent_type: bugfix-worker` will error
+as unregistered). The same applies later: any agent grown mid-session (e.g. via `grow-worker`) is
+dispatchable only after the next restart.
+
+Finally: to run a fleet they invoke the `agent-orchestrator` skill from a session that has the
 Task/Agent tool.
 
 ## How to operate after install
