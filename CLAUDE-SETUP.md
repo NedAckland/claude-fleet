@@ -12,11 +12,13 @@ works rather than assuming it.
   - `KIT` — where this claude-fleet kit lives.
   - The **target repo root** — run every command below from there.
 
-Set them and confirm:
+Get the kit and set the paths, then confirm:
 
 ```bash
-KIT="<path-to-claude-fleet-kit>"     # EDIT THIS
-cd "<path-to-target-repo>"           # EDIT THIS
+# Clone the kit (skip if you already have a local copy — just point KIT at it):
+git clone https://github.com/NedAckland/claude-fleet /tmp/claude-fleet 2>/dev/null || true
+KIT="/tmp/claude-fleet"              # the kit clone, or your existing local path
+cd "<path-to-target-repo>"           # EDIT THIS — your own project
 ROOT="$(git rev-parse --show-toplevel)" && cd "$ROOT"
 command -v git node bash >/dev/null && echo "preconditions OK"
 ```
@@ -26,20 +28,30 @@ command -v git node bash >/dev/null && echo "preconditions OK"
 ```bash
 mkdir -p .claude/skills .claude/agents .claude/fleet/scripts
 cp -R "$KIT/skills/agent-orchestrator"  .claude/skills/agent-orchestrator
-cp    "$KIT/agents/merge-validator.md"  .claude/agents/merge-validator.md
+cp -R "$KIT/skills/grow-worker"         .claude/skills/grow-worker   # interactive worker generator
+cp    "$KIT"/agents/[!_]*.md            .claude/agents/        # real agents only (skip the template)
+cp    "$KIT/agents/_worker-template.md" .claude/fleet/_worker-template.md   # copy-to-grow, NOT auto-registered
 cp    "$KIT"/scripts/*.sh               .claude/fleet/scripts/
 cp    "$KIT/hooks/claim-guard.sh"       .claude/fleet/scripts/
 chmod +x .claude/fleet/scripts/*.sh
 ```
 
+The `[!_]*.md` glob installs the real worker agents and skips `_worker-template.md` — the template
+carries placeholder frontmatter, so keep it OUT of `.claude/agents/` (where it would try to register
+as a bogus agent) and in `.claude/fleet/` as a reference to copy when growing the library.
+
 Expected resulting layout:
 
 ```
 .claude/
-├── skills/agent-orchestrator/{SKILL.md, WORKER-CONTRACT.md, references/protocols.md}
-├── agents/merge-validator.md
-└── fleet/scripts/{claim-guard.sh, heartbeat.sh, worktree.sh, merge-check.sh,
-                   board.sh, trail.sh, race.sh, review.sh, on-subagent-stop.sh}
+├── skills/
+│   ├── agent-orchestrator/{SKILL.md, WORKER-CONTRACT.md, references/protocols.md}
+│   └── grow-worker/SKILL.md   ← interactive generator for custom worker agents
+├── agents/{merge-validator.md, orchestrator-worker.md, bugfix-worker.md, refactor-worker.md}
+└── fleet/
+    ├── _worker-template.md   ← copy this to .claude/agents/<name>-worker.md to grow the library
+    └── scripts/{claim-guard.sh, heartbeat.sh, worktree.sh, merge-check.sh,
+                 board.sh, trail.sh, race.sh, review.sh, on-subagent-stop.sh}
 ```
 
 ## Step 2 — register the hooks in `.claude/settings.json`
@@ -53,7 +65,7 @@ other two are optional monitoring.
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Edit|Write|MultiEdit",
+        "matcher": "Edit|Write|MultiEdit|Bash",
         "hooks": [
           { "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/fleet/scripts/claim-guard.sh" }
         ]
@@ -61,7 +73,7 @@ other two are optional monitoring.
     ],
     "PostToolUse": [
       {
-        "matcher": "Edit|Write|MultiEdit",
+        "matcher": "Edit|Write|MultiEdit|Bash",
         "hooks": [
           { "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/fleet/scripts/heartbeat.sh" }
         ]
@@ -91,8 +103,8 @@ const j=require(fs).existsSync(f)?JSON.parse(require(fs).readFileSync(f,"utf8"))
 j.hooks=j.hooks||{};
 const B="${CLAUDE_PROJECT_DIR}/.claude/fleet/scripts/";
 const add=(k,e)=>{j.hooks[k]=j.hooks[k]||[];j.hooks[k].push(e)};
-add("PreToolUse",{matcher:"Edit|Write|MultiEdit",hooks:[{type:"command",command:B+"claim-guard.sh"}]});
-add("PostToolUse",{matcher:"Edit|Write|MultiEdit",hooks:[{type:"command",command:B+"heartbeat.sh"}]});
+add("PreToolUse",{matcher:"Edit|Write|MultiEdit|Bash",hooks:[{type:"command",command:B+"claim-guard.sh"}]});
+add("PostToolUse",{matcher:"Edit|Write|MultiEdit|Bash",hooks:[{type:"command",command:B+"heartbeat.sh"}]});
 add("SubagentStop",{hooks:[{type:"command",command:B+"on-subagent-stop.sh"}]});
 require(fs).writeFileSync(f,JSON.stringify(j,null,2)+"\n");
 console.log("settings.json updated");
@@ -159,10 +171,19 @@ before reporting the install complete.
 
 ## Step 5 — report to the user
 
-State plainly: (a) files installed and where, (b) that the `settings.json` hooks were registered,
-(c) the VERIFY result (deny=2, allow=0). Then tell them: editing/adding the `merge-validator`
-subagent requires a **Claude Code restart** to register, and that to run a fleet they invoke the
-`agent-orchestrator` skill from a session that has the Task/Agent tool.
+State plainly: (a) files installed and where — including the worker agents now in `.claude/agents/`
+(`merge-validator`, `orchestrator-worker`, `bugfix-worker`, `refactor-worker`), (b) that the
+`settings.json` hooks were registered, (c) the VERIFY result (deny=2, allow=0).
+
+Then the **mandatory restart gate** — say it as a hard step, not a footnote: **the user must restart
+Claude Code before running a fleet.** Both the `settings.json` hooks (claim-guard, heartbeat,
+on-subagent-stop) and every agent under `.claude/agents/` register only at startup — until the restart,
+the kit is installed but **inert** (no claim enforcement, and `subagent_type: bugfix-worker` will error
+as unregistered). The same applies later: any agent grown mid-session (e.g. via `grow-worker`) is
+dispatchable only after the next restart.
+
+Finally: to run a fleet they invoke the `agent-orchestrator` skill from a session that has the
+Task/Agent tool.
 
 ## How to operate after install
 

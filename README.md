@@ -4,9 +4,11 @@
 and land their work only after a human approves.**
 
 claude-fleet is a drop-in kit. It gives each agent its own **git worktree + branch**, fences each one
-to a declared **path-claim** with a **blocking hook** (a worker physically cannot edit outside its
-lane), validates finished branches with a read-only **merge-validator** subagent that tests the
-*merged* result, and then **stops at an explicit human merge gate** — it never merges on its own.
+to a declared **path-claim** with a **blocking hook** (Edit/Write/MultiEdit outside the claim are
+hard-blocked at edit time; obvious Bash strays are caught best-effort, and the merge-validator's
+diff-scope check is the authoritative backstop — see ADR-0002), validates finished branches with a
+read-only **merge-validator** subagent that tests the *merged* result, and then **stops at an explicit
+human merge gate** — it never merges on its own.
 
 Zero framework dependency: pure `git` + `bash` (macOS 3.2 safe) + `node` (already present with Claude
 Code). No `jq`, no python, nothing to `npm install`.
@@ -25,10 +27,25 @@ Concurrent agents collide for two avoidable reasons:
 
 claude-fleet provides both, plus the safe-merge machinery on the back end.
 
+## Install
+
+**In your target repo's Claude Code session, paste this:**
+
+> Clone https://github.com/NedAckland/claude-fleet and install it into this repo by following its
+> `CLAUDE-SETUP.md`. Then tell me to restart Claude Code so the hooks and worker agents register.
+
+That's the whole install: the agent clones the kit, copies the skill + agents + scripts, merges the
+hooks into `.claude/settings.json`, and runs the self-test. **Then restart Claude Code** — the hooks
+and agents only take effect on startup, so until you restart the kit is installed but *inert*.
+
+Prefer to do it by hand (or just read exactly what it does first)? **[CLAUDE-SETUP.md](CLAUDE-SETUP.md)**
+is terse, imperative, and copy-paste-ready — clone step, file copies, the `settings.json` edit, and the
+verification command. Written for an AI agent to execute, equally followable by a person top to bottom.
+
 ## 30-second quickstart
 
 You drive this from an **orchestrator** Claude Code session (the one with the Task/Agent tool). After
-installing (see the setup guides below), tell that session:
+installing (above) and restarting, tell that session:
 
 > "Use the agent-orchestrator skill. Split this work into parallel tasks, give each its own claim and
 > worktree, and don't merge anything until I approve."
@@ -62,13 +79,6 @@ It syntax-checks every script under `hooks/` and `scripts/`, then functionally p
 ALLOW, exit 0). It prints `VERIFY OK` and exits 0 on success, and exits non-zero on any failure. Pure
 `bash` + `node` — nothing to install.
 
-## Install
-
-See **[CLAUDE-SETUP.md](CLAUDE-SETUP.md)** — terse, imperative, copy-paste-ready steps to install
-this into a target repo: exact file copies, the `settings.json` hook edit, and a self-verification
-command to run. Written for an AI agent to execute, but equally followable by a person reading
-straight down it.
-
 ## Repo map
 
 ```
@@ -79,13 +89,19 @@ claude-fleet/
 ├── verify.sh                        ← one-command self-test (claim-guard deny/allow + syntax)
 ├── .gitignore
 ├── skills/
-│   └── agent-orchestrator/          ← the orchestrator SKILL (the conductor's playbook)
-│       ├── SKILL.md
-│       ├── WORKER-CONTRACT.md       ← the one stable doc each worker reads
-│       └── references/
-│           └── protocols.md         ← worker brief, race mode, merge train, recovery, config schema
+│   ├── agent-orchestrator/          ← the orchestrator SKILL (the conductor's playbook)
+│   │   ├── SKILL.md
+│   │   ├── WORKER-CONTRACT.md       ← the one stable doc each worker reads
+│   │   └── references/
+│   │       └── protocols.md         ← worker brief, race mode, merge train, recovery, config schema
+│   └── grow-worker/                 ← interactive generator for custom worker agents (anti-rot)
+│       └── SKILL.md
 ├── agents/
-│   └── merge-validator.md           ← read-only subagent: is this branch safe to merge?
+│   ├── merge-validator.md           ← read-only subagent: is this branch safe to merge?
+│   ├── orchestrator-worker.md       ← generic worker: the default/fallback dispatch target
+│   ├── bugfix-worker.md             ← specialist: reproduce → regression-test → minimal fix
+│   ├── refactor-worker.md           ← specialist: behavior-preserving restructure (tests green ↔)
+│   └── _worker-template.md          ← copy-to-grow template for your own specialist workers
 ├── hooks/
 │   └── claim-guard.sh               ← PreToolUse hook: DENIES edits outside an agent's path-claim
 └── scripts/
@@ -117,8 +133,10 @@ and free the claim (which may unblock dependent tasks).
 
 A **claim** is a list of path prefixes a worker may touch — a directory (`src/` matches everything
 under it) or an exact file (`src/index.ts`). `worktree.sh claim` writes it to a git-excluded
-`.agent-claim` file in the worker's worktree; the `claim-guard` PreToolUse hook reads that file on
-every edit and **hard-blocks (exit 2) anything outside the listed prefixes**. A claim can also be set
+`.agent-claim` file in the worker's worktree; the `claim-guard` PreToolUse hook reads that file and
+**hard-blocks (exit 2) any Edit/Write/MultiEdit outside the listed prefixes** — plus a best-effort
+block of obvious out-of-claim Bash writes (`>`/`tee`); shell can't be perfectly fenced at edit time,
+so the merge-validator's diff-scope check is the authoritative backstop. A claim can also be set
 via the `$AGENT_CLAIM` env var (newline- or colon-separated globs). **No claim set → the hook is a
 no-op (exit 0)** — so installing it never affects ordinary single-agent work; it only bites a worker
 you've actively claimed.
