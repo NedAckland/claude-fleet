@@ -25,10 +25,11 @@ branch only after a human says go.
 > commits to its `agent/*` branch and leaves the tree clean, without pushing or merging — bake that
 > instruction into the worker brief.
 
-> **Skill-routing note (optional):** if your setup has a skill/subagent registry, before spawning a
-> worker check for a specialist that matches the task and either dispatch it or tell the worker which
-> skills to load. If there's no registry, a general-purpose worker is fine — just give it a tight
-> brief and claim.
+> **Worker-agent routing:** at dispatch you pick the **specialized worker agent** (`subagent_type`)
+> that best fits each task — a `bugfix-worker`, a `refactor-worker`, or one you've grown — and fall
+> back to the generic `orchestrator-worker` when none clearly fits. The full selection rules are in
+> step 4 ("Choose the worker agent"); growing the library is in `references/protocols.md`. This kit
+> ships the agents under `agents/`, installed at `.claude/agents/`.
 
 ## Why this skill exists
 
@@ -55,8 +56,10 @@ These are the whole point of the skill. Everything else is mechanism.
 - **Never let two in-flight tasks claim overlapping paths.** If two tasks need the same files,
   they are not concurrent — sequence them with a dependency. Overlap detected at assignment time
   is a bug you prevent, not a conflict you resolve later. Claims are not just advisory: provisioning
-  writes each task's claim into its worktree and a **PreToolUse `claim-guard` hook blocks any edit
-  outside it** (see step 3 + Bundled scripts), so a worker physically cannot stray.
+  writes each task's claim into its worktree and a **PreToolUse `claim-guard` hook hard-blocks any
+  Edit/Write/MultiEdit outside it** (and best-effort blocks obvious Bash strays; see step 3 + Bundled
+  scripts). Edit-time fencing isn't perfect for shell, so the merge-validator's diff-scope check is the
+  authoritative backstop (ADR-0002) — never skip step 6.
 
 ## The board (your source of truth)
 
@@ -72,6 +75,8 @@ you own. Either way, track per task:
 | `worktree`   | absolute path to the task's worktree directory |
 | `base`       | branch/commit the worktree was cut from |
 | `dispatch`   | `"background"` or `"manual"` |
+| `agent`      | the worker agent dispatched, e.g. `bugfix-worker` / `refactor-worker` / `orchestrator-worker` (fallback) — chosen at step 4 |
+| `model`      | model override for this worker if you set one (else inherited) — chosen by task weight at step 4 |
 | `worker`     | background task id (for monitoring/stopping), or the human's name |
 | `heartbeat`  | timestamp of last observed progress (a commit, or a status note) |
 | `verdict`    | last merge-validator result (cached JSON) |
@@ -121,23 +126,56 @@ on the task:
 .claude/fleet/scripts/worktree.sh claim <id> <slug> <prefix> [<prefix>...]
 ```
 (You can also pass the prefixes as trailing args to `create`.) This drops a git-excluded
-`.agent-claim` file the `claim-guard` PreToolUse hook reads to **deny any edit outside the claim** —
-the infrastructure-level guarantee behind non-negotiable #2. A worker that needs a path it wasn't
-given is hard-blocked and must report back, exactly as intended.
+`.agent-claim` file the `claim-guard` PreToolUse hook reads to **deny any Edit/Write/MultiEdit outside
+the claim** (and best-effort-block obvious Bash strays) — the edit-time guard behind non-negotiable #2,
+authoritatively backstopped by the merge-validator's diff-scope check (ADR-0002). A worker that needs a
+path it wasn't given is hard-blocked and must report back, exactly as intended.
 
 ### 4 — Dispatch (hybrid)
 You support two worker kinds; the same board governs both. Every worker is told to make targeted
 edits, avoid chat clutter, stop-and-report on ambiguity, and verify-before-done (the worker brief
 in `references/protocols.md` spells this out).
 
-- **Background worker** — spawn via the Agent tool with `run_in_background: true`. The full spawn
-  template (and what each line buys you) is in `references/protocols.md` "Worker brief". Pass
-  `maxTurns` from `workerMaxTurns` so a hung worker self-aborts into a reportable state. Record the
-  returned task id as the task's `worker`; set `owner` and flip `status` to `in_progress`.
-- **Manual session** — the user opens their own session/window. Print the ready-to-use launch
-  block from `references/protocols.md` ("Manual launch") — it tells them which directory to open
-  and pastes the same claim/branch rules. Set `owner` to the person and `status` to `in_progress`;
-  you'll monitor via their branch's commits.
+**Choose the worker agent (`subagent_type`) first.** Match the task to the best-fitting *specialized
+worker agent*, so the worker arrives already equipped for its kind of work instead of re-deriving it:
+
+1. **The menu.** Use the `subagent_type` list your harness already exposes (it includes custom agents
+   like `bugfix-worker`); if your harness doesn't inject one, enumerate `.claude/agents/` (project)
+   then `~/.claude/agents/` (global) and read each `name` + `description`. Project shadows global on a
+   name clash; dedup by name.
+2. **Eligibility.** Only agents whose role is "execute one claimed coding task" are routable. **Exclude
+   by category** orchestration, validation, planning, exploration, and meta agents — and treat the
+   `deny` list in `.fleet/config.json` (seeded with `merge-validator`) as a hard floor that can't be
+   reasoned around. `orchestrator-worker` is the **fallback only**, never a positive match.
+3. **Match — and under-route.** Pick the one specialist whose description genuinely fits the task. If
+   none is a *clear* fit, dispatch the generic **`orchestrator-worker`** — a wrong specialist misleads
+   the worker, so bias toward the generic. (One agent per task; there is no "load two agents.")
+4. **Only dispatch a registry-present `subagent_type`.** Never dispatch a name you just wrote to disk
+   or guessed — a freshly-added agent isn't registered until a Claude Code restart, and an unregistered
+   type errors the spawn. If a task would clearly benefit from a specialist that doesn't exist yet,
+   dispatch the generic worker this run and record the gap (see `references/protocols.md` "Growing the
+   worker library").
+
+**Then choose the model.** The shipped agents declare `model: inherit`, so by default a worker runs on
+*your* (the orchestrator's) model — fine, but not always right per task. The Agent tool takes a `model`
+override at spawn, so pick by task weight rather than running an expensive model across the whole fleet:
+a mechanical or low-ambiguity task (rename, doc tweak, small fix) → a cheaper/faster model; a subtle
+bug, tricky refactor, or design-bearing task → a stronger model. When unsure, inherit. Record it on the
+task (e.g. `model: haiku`) so the board shows each worker's loadout and `.fleet/memory.json` can learn
+which weights paid off.
+
+Record the chosen agent (and model, if overridden) on the task, then dispatch it via the kind below.
+
+- **Background worker** — spawn via the Agent tool with `run_in_background: true`, the `subagent_type`
+  you chose above (the generic `orchestrator-worker` when no specialist fit), and the `model` override
+  if you picked one. The full spawn template (and what each line buys you) is in `references/protocols.md`
+  "Worker brief". Pass `maxTurns` from `workerMaxTurns` so a hung worker self-aborts into a reportable
+  state. Record the returned task id as the task's `worker`; set `owner` and flip `status` to `in_progress`.
+- **Manual session** — the user opens their own session/window. A human worker can't be a
+  `subagent_type`, so routing is advisory here: print the ready-to-use launch block from
+  `references/protocols.md` ("Manual launch") and, if a specialist shape fit, fold its discipline
+  (e.g. "reproduce + regression-test first" for a bugfix) into the brief. Set `owner` to the person
+  and `status` to `in_progress`; you'll monitor via their branch's commits.
 
 Only dispatch **ready** tasks. As tasks finish and merge, previously-blocked tasks become ready —
 provision and dispatch them then.
@@ -268,10 +306,12 @@ always-off paths, claim-guard for "this worker may only touch its lane."
 All under `.claude/fleet/scripts/` (pure git + a tiny `awk`/`node` for JSON; macOS bash 3.2 safe):
 - `worktree.sh create|claim|remove|list` — provision/teardown a per-task worktree + `agent/*` branch;
   `claim` writes the enforceable `.agent-claim` file (also accepted as trailing args to `create`).
-- `claim-guard.sh` — **PreToolUse** hook (matcher `Edit|Write|MultiEdit`, wired in `settings.json`).
-  Reads the target file's worktree `.agent-claim` (or `$AGENT_CLAIM`) and **blocks (exit 2) any edit
-  outside the claim**. Self-gates on the claim, so it's silent in the main checkout and ordinary
-  sessions. (Installed at the hooks path you registered — see README.)
+- `claim-guard.sh` — **PreToolUse** hook (matcher `Edit|Write|MultiEdit|Bash`, wired in
+  `settings.json`). Reads the target's worktree `.agent-claim` (or `$AGENT_CLAIM`) and **blocks
+  (exit 2) any Edit/Write/MultiEdit outside the claim**, plus a **best-effort** block of obvious
+  out-of-claim Bash writes (`>`/`tee`; allows when it can't parse a target). Not a perfect shell fence
+  — the merge-validator's diff-scope is the authoritative backstop (ADR-0002). Self-gates on the claim,
+  so it's silent in the main checkout and ordinary sessions.
 - `heartbeat.sh` — **PostToolUse** hook. Stamps `.agent-heartbeat` (timestamp + cycle count) and
   appends a bounded `.agent-trail` (last 30 actions) inside the claimed worktree; `board.sh` turns the
   heartbeat into the HB column + `STALL?` flag, `trail.sh` reads the trail.
@@ -311,11 +351,16 @@ of merge collisions that come from multiple workers editing the same bookkeeping
 
 ## Reference
 
-Read `references/protocols.md` when you need the exact worker brief, manual launch block, race mode,
-the merge/rebase sequence, the revision loop, recovery-from-stall steps, the deny-floor, or the
-`.fleet/config.json` schema. Keep this SKILL.md as your map; the protocols file is the detailed
-playbook.
+Read `references/protocols.md` when you need the exact worker brief, **growing the worker library**,
+the manual launch block, race mode, the merge/rebase sequence, the revision loop, recovery-from-stall
+steps, the deny-floor, or the `.fleet/config.json` schema. Keep this SKILL.md as your map; the
+protocols file is the detailed playbook.
 
-The reusable **`merge-validator`** subagent (read-only, step 6) ships in this kit as
-`merge-validator.md` — install it at `.claude/agents/merge-validator.md`. Editing it needs a Claude
-Code restart to re-register.
+This kit ships, under `agents/` (install to `.claude/agents/`):
+- **`merge-validator`** — read-only validate-the-merge subagent (step 6).
+- **`orchestrator-worker`** — the generic worker, your default/fallback dispatch target (step 4).
+- **`bugfix-worker`**, **`refactor-worker`** — skill-free specialist workers you route to by task shape.
+
+Plus `_worker-template.md` (installed to `.claude/fleet/`) to copy when growing your own specialists.
+Adding or editing any agent needs a Claude Code restart to re-register — see ADR-0001 and
+`references/protocols.md` "Growing the worker library."

@@ -4,9 +4,11 @@
 and land their work only after a human approves.**
 
 claude-fleet is a drop-in kit. It gives each agent its own **git worktree + branch**, fences each one
-to a declared **path-claim** with a **blocking hook** (a worker physically cannot edit outside its
-lane), validates finished branches with a read-only **merge-validator** subagent that tests the
-*merged* result, and then **stops at an explicit human merge gate** — it never merges on its own.
+to a declared **path-claim** with a **blocking hook** (Edit/Write/MultiEdit outside the claim are
+hard-blocked at edit time; obvious Bash strays are caught best-effort, and the merge-validator's
+diff-scope check is the authoritative backstop — see ADR-0002), validates finished branches with a
+read-only **merge-validator** subagent that tests the *merged* result, and then **stops at an explicit
+human merge gate** — it never merges on its own.
 
 Zero framework dependency: pure `git` + `bash` (macOS 3.2 safe) + `node` (already present with Claude
 Code). No `jq`, no python, nothing to `npm install`.
@@ -79,13 +81,19 @@ claude-fleet/
 ├── verify.sh                        ← one-command self-test (claim-guard deny/allow + syntax)
 ├── .gitignore
 ├── skills/
-│   └── agent-orchestrator/          ← the orchestrator SKILL (the conductor's playbook)
-│       ├── SKILL.md
-│       ├── WORKER-CONTRACT.md       ← the one stable doc each worker reads
-│       └── references/
-│           └── protocols.md         ← worker brief, race mode, merge train, recovery, config schema
+│   ├── agent-orchestrator/          ← the orchestrator SKILL (the conductor's playbook)
+│   │   ├── SKILL.md
+│   │   ├── WORKER-CONTRACT.md       ← the one stable doc each worker reads
+│   │   └── references/
+│   │       └── protocols.md         ← worker brief, race mode, merge train, recovery, config schema
+│   └── grow-worker/                 ← interactive generator for custom worker agents (anti-rot)
+│       └── SKILL.md
 ├── agents/
-│   └── merge-validator.md           ← read-only subagent: is this branch safe to merge?
+│   ├── merge-validator.md           ← read-only subagent: is this branch safe to merge?
+│   ├── orchestrator-worker.md       ← generic worker: the default/fallback dispatch target
+│   ├── bugfix-worker.md             ← specialist: reproduce → regression-test → minimal fix
+│   ├── refactor-worker.md           ← specialist: behavior-preserving restructure (tests green ↔)
+│   └── _worker-template.md          ← copy-to-grow template for your own specialist workers
 ├── hooks/
 │   └── claim-guard.sh               ← PreToolUse hook: DENIES edits outside an agent's path-claim
 └── scripts/
@@ -117,8 +125,10 @@ and free the claim (which may unblock dependent tasks).
 
 A **claim** is a list of path prefixes a worker may touch — a directory (`src/` matches everything
 under it) or an exact file (`src/index.ts`). `worktree.sh claim` writes it to a git-excluded
-`.agent-claim` file in the worker's worktree; the `claim-guard` PreToolUse hook reads that file on
-every edit and **hard-blocks (exit 2) anything outside the listed prefixes**. A claim can also be set
+`.agent-claim` file in the worker's worktree; the `claim-guard` PreToolUse hook reads that file and
+**hard-blocks (exit 2) any Edit/Write/MultiEdit outside the listed prefixes** — plus a best-effort
+block of obvious out-of-claim Bash writes (`>`/`tee`); shell can't be perfectly fenced at edit time,
+so the merge-validator's diff-scope check is the authoritative backstop. A claim can also be set
 via the `$AGENT_CLAIM` env var (newline- or colon-separated globs). **No claim set → the hook is a
 no-op (exit 0)** — so installing it never affects ordinary single-agent work; it only bites a worker
 you've actively claimed.

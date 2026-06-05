@@ -12,7 +12,8 @@
 #
 # The claim prefixes (if given) are written to "<worktree>/.agent-claim" — one prefix per line —
 # and git-excluded so they never commit. The claim-guard PreToolUse hook reads that file to ENFORCE
-# the claim (deny edits outside it), turning the path-claim from advisory prose into a real guardrail.
+# the claim (deny Edit/Write outside it; best-effort for Bash), turning the path-claim from advisory
+# prose into a real guardrail (authoritatively backstopped by the merge-validator's scope check).
 set -eo pipefail
 
 repo_root() { git rev-parse --show-toplevel; }

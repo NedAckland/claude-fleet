@@ -52,8 +52,43 @@ printf '{"tool_input":{"file_path":"%s"}}' "$tmp/src/in.ts" \
 allow=$?
 echo "  in-claim     ($tmp/src/in.ts) → exit $allow (want 0 = ALLOW)"
 
-[ "$deny" -eq 2 ]  || fail "out-of-claim edit was NOT denied (exit $deny, want 2) — claim-guard regressed"
-[ "$allow" -eq 0 ] || fail "in-claim edit was NOT allowed (exit $allow, want 0) — claim-guard regressed"
+# 2c. out-of-claim BASH write (the best-effort tripwire) → must DENY (exit 2)
+printf '{"tool_input":{"command":"echo x > %s"},"cwd":"%s"}' "$tmp/OUTSIDE.txt" "$tmp" \
+  | AGENT_CLAIM='src/**' CLAUDE_PROJECT_DIR="$tmp" bash "$GUARD" >/dev/null 2>&1
+bash_deny=$?
+echo "  bash redirect out-of-claim → exit $bash_deny (want 2 = DENY)"
+
+# 2d. in-claim BASH write → must ALLOW (exit 0)
+printf '{"tool_input":{"command":"echo x > %s"},"cwd":"%s"}' "$tmp/src/in.txt" "$tmp" \
+  | AGENT_CLAIM='src/**' CLAUDE_PROJECT_DIR="$tmp" bash "$GUARD" >/dev/null 2>&1
+bash_allow=$?
+echo "  bash redirect in-claim     → exit $bash_allow (want 0 = ALLOW)"
+
+[ "$deny" -eq 2 ]       || fail "out-of-claim edit was NOT denied (exit $deny, want 2) — claim-guard regressed"
+[ "$allow" -eq 0 ]      || fail "in-claim edit was NOT allowed (exit $allow, want 0) — claim-guard regressed"
+[ "$bash_deny" -eq 2 ]  || fail "out-of-claim Bash write was NOT denied (exit $bash_deny, want 2) — Bash tripwire regressed"
+[ "$bash_allow" -eq 0 ] || fail "in-claim Bash write was NOT allowed (exit $bash_allow, want 0) — Bash tripwire regressed"
+
+# --- 3. shipped agent definitions are well-formed -------------------------------------------------
+echo "== 3. agent frontmatter check =="
+# Real agents (the template is excluded by the [!_] glob) must declare name + description, and names
+# must be unique — a dispatchable subagent_type with no description can't be matched/routed.
+agent_count=0
+names=""
+for a in "$KIT"/agents/[!_]*.md; do
+  [ -e "$a" ] || continue
+  grep -qE '^name:[[:space:]]*[^[:space:]]' "$a"        || fail "agent ${a#$KIT/} missing 'name:'"
+  grep -qE '^description:' "$a"                          || fail "agent ${a#$KIT/} missing 'description:'"
+  nm="$(awk -F': *' '/^name:/{print $2; exit}' "$a")"
+  case " $names " in *" $nm "*) fail "duplicate agent name '$nm' in ${a#$KIT/}" ;; esac
+  names="$names $nm"
+  echo "  ok: ${a#$KIT/} (name: $nm)"
+  agent_count=$((agent_count + 1))
+done
+[ "$agent_count" -gt 0 ] || fail "no agent definitions found under agents/"
+# The generic fallback worker must exist — selection always degrades to it.
+case " $names " in *" orchestrator-worker "*) ;; (*) fail "missing the generic fallback agent 'orchestrator-worker'" ;; esac
+echo "  $agent_count agent definition(s) OK"
 
 echo
 echo "VERIFY OK"

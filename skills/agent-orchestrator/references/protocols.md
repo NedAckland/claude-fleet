@@ -6,6 +6,7 @@ section you need. Script paths below are written relative to the kit install roo
 
 ## Table of contents
 - [Worker brief (background dispatch)](#worker-brief)
+- [Growing the worker library](#growing-the-worker-library)
 - [Manual launch block](#manual-launch)
 - [Race mode (same-task best-of-N)](#race-mode)
 - [Merge + rebase command sequence](#merge--rebase)
@@ -19,11 +20,12 @@ section you need. Script paths below are written relative to the kit install roo
 
 ## Worker brief
 
-Spawn a background worker via the Agent tool with `run_in_background: true` and `maxTurns` from
-`workerMaxTurns`. Build its prompt from this template. The point of every line is to keep the worker
-inside its lane so its branch merges cleanly later. (If you maintain a reusable worker subagent
-definition, bake these constants into it and pass only the dynamic TASK / WORKING DIRECTORY / CLAIM —
-version-controlled rules can't be forgotten or truncated.)
+Spawn a background worker via the Agent tool with `run_in_background: true`, the `subagent_type` you
+selected in SKILL.md step 4, and `maxTurns` from `workerMaxTurns`. Build its prompt from this template.
+The point of every line is to keep the worker inside its lane so its branch merges cleanly later.
+(The kit's shipped worker agents — `orchestrator-worker`, `bugfix-worker`, `refactor-worker` — already
+bake these constants into their definitions, so when you dispatch one you can pass only the dynamic
+TASK / WORKING DIRECTORY / CLAIM. Version-controlled rules can't be forgotten or truncated.)
 
 ```
 You are a worker agent. Do exactly this task and nothing else.
@@ -65,6 +67,40 @@ forever (the "infinite wait" failure mode): pass `maxTurns` on the Agent call (d
 `workerMaxTurns` in `.fleet/config.json`). Combined with the heartbeat watchdog (a `STALL?` on
 `board.sh` when `.agent-heartbeat` goes stale), you can tell a *progressing* worker from a zombie
 rather than trusting that the process is merely alive.
+
+---
+
+## Growing the worker library
+
+The kit ships three worker agents — `orchestrator-worker` (the generic fallback), `bugfix-worker`,
+and `refactor-worker` — plus `agents/_worker-template.md` to copy. They are deliberately **skill-free
+and self-contained**: their specialization lives in their own prompt, so they work on any install. A
+prebuilt that bound an external skill (`skills: tdd`) would break on a repo that lacks that skill —
+which is why skill-binding specialists are *yours to grow*, not shipped (see ADR-0001).
+
+**Two ways to grow one:** (a) interactively — run the kit's **`grow-worker`** skill, which interviews
+the user, runs an anti-rot gate, and writes a well-formed `.claude/agents/<name>-worker.md` (this is
+the quick path, and where a user's own skills can be bound); or (b) by hand — copy `_worker-template.md`
+and fill it in. Either way the new agent needs a restart to register (step 4 below).
+
+**When a task wants a specialist that doesn't exist yet** (e.g. you're hand-briefing the third
+TDD-shaped task), don't block and don't guess a `subagent_type`:
+
+1. **Degrade now.** Dispatch the generic `orchestrator-worker` for this task so the run proceeds. If a
+   light methodology nudge helps, fold a line or two into the brief — but don't try to dispatch an
+   agent that isn't registered.
+2. **Record the gap.** Append it to `.fleet/memory.json` (the learning loop, SKILL.md step 9), e.g.
+   `{ "gap": "recurring tdd-shaped tasks", "suggest": "tdd-worker agent binding skills: tdd" }`.
+3. **Offer at the checkpoint.** At wrap-up, surface the gap to the user — and, *only if they say yes*,
+   draft the agent by copying `_worker-template.md` into `.claude/agents/<name>-worker.md` and filling
+   in `name`, `description` (this is what you'll match against next time), and any `skills:` binding.
+   Drafting is a file write into their config, so it stays behind an explicit yes — never automatic.
+4. **Restart to register.** Adding or editing an agent needs a **Claude Code restart** before its
+   `subagent_type` is dispatchable. So a specialist created today routes automatically on the *next*
+   run, not this one. Tell the user that plainly.
+
+The loop end-to-end: *detect recurring shape → degrade to generic → record → offer a drafted agent →
+human reviews + restarts → specialist routes automatically next run.*
 
 ---
 
@@ -259,10 +295,15 @@ always-off paths; claim-guard scopes each worker to its lane. If a repo doesn't 
   "maxConcurrent": 4,
   "linkArtifacts": ["node_modules"],
   "workerMaxTurns": 60,
-  "staleMinutes": 10
+  "staleMinutes": 10,
+  "workerAgentDeny": ["merge-validator"]
 }
 ```
 - `validate` — shell command the merge-validator runs on the trial-merged result. Exit 0 = pass.
+- `workerAgentDeny` — hard denylist for worker-agent routing (SKILL.md step 4): `subagent_type`s that
+  must never be dispatched as a feature worker, no matter how their description matches. Seed it with
+  `merge-validator` and any other non-worker agent you keep around. The category convention catches the
+  rest; this is the floor that can't be reasoned around.
 - `baseBranch` — default base for new worktrees and the default merge target.
 - `worktreeDir` — override where worktrees go (default: sibling `<repo>-worktrees/`).
 - `maxConcurrent` — soft cap on simultaneously dispatched workers; queue the rest as ready-but-held.
@@ -298,4 +339,9 @@ pytest, go test) and ask once if ambiguous, offering to write this file.
   early. Use `git branch -D` yourself only when you're sure.
 - Keep `<repo>-worktrees/` out of the repo (it's a sibling, so it already is) — no `.gitignore`
   entry needed.
+- Sibling worktrees live outside the project root. In current Claude Code a background worker's
+  Edit/Write tools reach them with no extra config (verified empirically — no `additionalDirectories`
+  needed). If a future version or a sandboxed setup ever has a worker report it *can't* write in its
+  own worktree, add the worktree parent to `permissions.additionalDirectories` (or launch the worker
+  with `--add-dir ../<repo>-worktrees`). Until that symptom appears, don't add the config.
 ```
