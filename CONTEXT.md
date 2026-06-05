@@ -43,3 +43,18 @@ _Avoid_: lock, lane (informal only), permission
 A Worker's committed diff touching files outside its Claim — caught by the merge-validator and a reason
 to hold the merge.
 _Avoid_: stray, leak, overreach
+
+**Heartbeat**:
+A Worker's liveness signal — a per-worktree marker refreshed on each action (edit or Bash command), so
+the orchestrator can tell a *progressing* Worker from one that is merely alive.
+_Avoid_: ping, pulse, keepalive
+
+**Trail**:
+The bounded recent-action log of a Worker (what it actually did), paired with the Heartbeat to show
+what a Worker was doing — especially when it Stalled.
+_Avoid_: history, log, audit
+
+**Stall**:
+A Worker whose Heartbeat has gone stale past the threshold while still in flight — a suspected zombie
+the orchestrator should probe. A live process is not the same as a progressing one.
+_Avoid_: hang, freeze, stuck

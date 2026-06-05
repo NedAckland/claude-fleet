@@ -90,6 +90,26 @@ done
 case " $names " in *" orchestrator-worker "*) ;; (*) fail "missing the generic fallback agent 'orchestrator-worker'" ;; esac
 echo "  $agent_count agent definition(s) OK"
 
+# --- 4. heartbeat stamps a claimed worktree for a BASH action ------------------------------------
+echo "== 4. heartbeat Bash liveness check =="
+HB="$KIT/scripts/heartbeat.sh"
+[ -f "$HB" ] || fail "heartbeat hook not found at $HB"
+hbwt="$tmp/hbwt"
+mkdir -p "$hbwt"
+printf 'src/\n' > "$hbwt/.agent-claim"
+# A Bash call (no file_path) that cd-s into the worktree must stamp .agent-heartbeat + .agent-trail.
+printf '{"tool_name":"Bash","tool_input":{"command":"cd %s && echo hi"},"cwd":"%s"}' "$hbwt" "$tmp" \
+  | CLAUDE_PROJECT_DIR="$tmp" bash "$HB" >/dev/null 2>&1
+[ -f "$hbwt/.agent-heartbeat" ] || fail "heartbeat did NOT stamp .agent-heartbeat for a Bash action — Bash heartbeat regressed"
+grep -q "Bash" "$hbwt/.agent-trail" 2>/dev/null || fail "heartbeat trail missing the Bash action — trail regressed"
+echo "  bash action stamped heartbeat + trail in the claimed worktree"
+# A claimless dir must NOT be stamped (self-gating).
+nofleet="$tmp/nofleet"; mkdir -p "$nofleet"
+printf '{"tool_name":"Bash","tool_input":{"command":"echo hi"},"cwd":"%s"}' "$nofleet" \
+  | CLAUDE_PROJECT_DIR="$nofleet" bash "$HB" >/dev/null 2>&1
+[ -f "$nofleet/.agent-heartbeat" ] && fail "heartbeat stamped a claimless dir — self-gate regressed" || true
+echo "  claimless dir left untouched (self-gate holds)"
+
 echo
 echo "VERIFY OK"
 exit 0

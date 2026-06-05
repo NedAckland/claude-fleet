@@ -204,7 +204,8 @@ and augment with live git state:
 ```
 which lists each `agent/*` worktree with ahead/behind, uncommitted state, and an **HB column** — the
 age + cycle-count of its last heartbeat (a `heartbeat` PostToolUse hook stamps `.agent-heartbeat` on
-every tool call inside a claimed worktree). A live process is not a *progressing* one: board.sh flags
+each action — Edit/Write/MultiEdit/Bash — inside a claimed worktree). A live process is not a
+*progressing* one: board.sh flags
 an in-flight worker whose heartbeat has gone stale (older than `staleMinutes`, default 10) as
 **`STALL?`** — that's your cue to probe it, because a zombie agent looks "alive" but isn't moving.
 For a continuous view use `board.sh --watch [secs]`; to see *what* a worker has been doing (and what
@@ -312,9 +313,12 @@ All under `.claude/fleet/scripts/` (pure git + a tiny `awk`/`node` for JSON; mac
   out-of-claim Bash writes (`>`/`tee`; allows when it can't parse a target). Not a perfect shell fence
   — the merge-validator's diff-scope is the authoritative backstop (ADR-0002). Self-gates on the claim,
   so it's silent in the main checkout and ordinary sessions.
-- `heartbeat.sh` — **PostToolUse** hook. Stamps `.agent-heartbeat` (timestamp + cycle count) and
-  appends a bounded `.agent-trail` (last 30 actions) inside the claimed worktree; `board.sh` turns the
-  heartbeat into the HB column + `STALL?` flag, `trail.sh` reads the trail.
+- `heartbeat.sh` — **PostToolUse** hook (matcher `Edit|Write|MultiEdit|Bash`). Stamps `.agent-heartbeat`
+  (timestamp + cycle count) and appends a bounded `.agent-trail` (last 30 actions) inside the claimed
+  worktree — including Bash, so an edit-light-but-busy worker (long test runs, git) still registers
+  liveness and isn't a false `STALL?`. Locates the worktree the same way claim-guard does (file path,
+  else a leading `cd` in the command, else cwd). `board.sh` turns the heartbeat into the HB column +
+  `STALL?` flag; `trail.sh` reads the trail.
 - `merge-check.sh <base> <feat> [claim...]` — read-only probe: conflicts (no working-tree
   mutation), ahead/behind, changed files, out-of-claim files, diffstat → JSON. (The
   merge-validator uses this, then adds the trial-merge test run.)

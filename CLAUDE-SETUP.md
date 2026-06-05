@@ -71,7 +71,7 @@ other two are optional monitoring.
     ],
     "PostToolUse": [
       {
-        "matcher": "Edit|Write|MultiEdit",
+        "matcher": "Edit|Write|MultiEdit|Bash",
         "hooks": [
           { "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/fleet/scripts/heartbeat.sh" }
         ]
@@ -102,7 +102,7 @@ j.hooks=j.hooks||{};
 const B="${CLAUDE_PROJECT_DIR}/.claude/fleet/scripts/";
 const add=(k,e)=>{j.hooks[k]=j.hooks[k]||[];j.hooks[k].push(e)};
 add("PreToolUse",{matcher:"Edit|Write|MultiEdit|Bash",hooks:[{type:"command",command:B+"claim-guard.sh"}]});
-add("PostToolUse",{matcher:"Edit|Write|MultiEdit",hooks:[{type:"command",command:B+"heartbeat.sh"}]});
+add("PostToolUse",{matcher:"Edit|Write|MultiEdit|Bash",hooks:[{type:"command",command:B+"heartbeat.sh"}]});
 add("SubagentStop",{hooks:[{type:"command",command:B+"on-subagent-stop.sh"}]});
 require(fs).writeFileSync(f,JSON.stringify(j,null,2)+"\n");
 console.log("settings.json updated");
